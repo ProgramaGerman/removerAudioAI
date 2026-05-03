@@ -8,3 +8,26 @@ wheels/
 
 # Virtual environments
 .venv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests and audio files
+tests/
+assets/
+*.wav
+*.mp3
+*.mp4
+
+# Documentation
+DIAGRAM.md
+LOG.md
+
+# Images
+image.png
+"image copy.png"
