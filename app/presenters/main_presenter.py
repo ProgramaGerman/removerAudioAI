@@ -34,8 +34,13 @@ class MainPresenter:
         return self._dependency_checker.get_missing_system()
 
     def install_packages(self) -> None:
-        """Inicia la instalación de paquetes faltantes en un hilo separado."""
-        import sys
+        """Inicia la instalación de paquetes faltantes en un hilo separado.
+
+        Usa `uv add`, ya que este proyecto se gestiona con uv. Los entornos
+        virtuales creados por uv no siempre incluyen pip, así que depender
+        de `python -m pip` aquí puede fallar silenciosamente.
+        """
+        import shutil
         import threading
 
         missing = self.get_missing_packages()
@@ -46,10 +51,20 @@ class MainPresenter:
         def _install():
             import subprocess
 
+            uv_path = shutil.which("uv")
+            if uv_path is None:
+                self._emit(
+                    "install_error",
+                    "No se encontró 'uv' en el PATH. Instálalo desde "
+                    "https://docs.astral.sh/uv/getting-started/installation/ "
+                    f"y luego ejecuta: uv add {' '.join(missing)}",
+                )
+                return
+
             try:
-                self._emit("install_progress", f"Instalando: {', '.join(missing)}...")
+                self._emit("install_progress", f"Instalando con uv: {', '.join(missing)}...")
                 process = subprocess.Popen(
-                    [sys.executable, "-m", "pip", "install", "--upgrade"] + missing,
+                    [uv_path, "add"] + missing,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -63,7 +78,9 @@ class MainPresenter:
                 if process.returncode == 0:
                     self._emit("install_complete", True)
                 else:
-                    self._emit("install_error", f"pip terminó con código {process.returncode}")
+                    self._emit(
+                        "install_error", f"uv add terminó con código {process.returncode}"
+                    )
             except Exception as e:
                 self._emit("install_error", str(e))
 

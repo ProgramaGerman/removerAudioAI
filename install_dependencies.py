@@ -6,7 +6,6 @@ Este script instala todas las dependencias necesarias para ejecutar la aplicaci√
 
 import subprocess
 import sys
-import os
 
 
 def install_dependencies():

@@ -27,18 +27,80 @@ class AudioSeparator:
         except Exception as e:
             raise RuntimeError(f"Error al cargar modelo Demucs: {e}") from e
 
+    # Formatos que libsndfile/soundfile NO puede decodificar directamente
+    # y que por lo tanto necesitan pasar antes por ffmpeg.
+    _FFMPEG_REQUIRED_EXTENSIONS = {".m4a", ".aac", ".mp4", ".mp3"}
+
+    def _transcode_with_ffmpeg(self, audio_path: str) -> str:
+        """Convierte un audio a WAV temporal usando ffmpeg.
+
+        Necesario para contenedores/codecs que libsndfile no soporta,
+        como .m4a/AAC.
+        """
+        import shutil
+        import subprocess
+        import tempfile
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path is None:
+            raise RuntimeError(
+                "ffmpeg no está instalado o no está en el PATH. Es necesario "
+                "para leer archivos .m4a/.aac/.mp3. Instálalo desde "
+                "https://ffmpeg.org/download.html"
+            )
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(tmp_fd)
+
+        result = subprocess.run(
+            [ffmpeg_path, "-y", "-i", audio_path, "-ar", "44100", "-ac", "2", tmp_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg no pudo convertir '{audio_path}': "
+                f"{result.stderr.decode(errors='ignore')}"
+            )
+        return tmp_path
+
     def _load_audio(self, audio_path: str, target_channels: int, target_sr: int):
         """Carga audio con soundfile (sin dependencia en torchcodec).
 
         soundfile usa libsndfile directamente y no requiere torchcodec ni
-        torchaudio 2.9+ como backend de decodificación.
+        torchaudio 2.9+ como backend de decodificación. Para formatos que
+        libsndfile no soporta (m4a, aac, mp3, mp4), se pre-convierte a WAV
+        con ffmpeg de forma transparente.
         """
         import numpy as np
         import soundfile as sf
         import torch
+        from pathlib import Path as _Path
 
-        # soundfile carga como [samples, channels] en float32/float64
-        data, sr = sf.read(audio_path, always_2d=True, dtype="float32")
+        ext = _Path(audio_path).suffix.lower()
+        temp_wav_path: str | None = None
+
+        if ext in self._FFMPEG_REQUIRED_EXTENSIONS:
+            temp_wav_path = self._transcode_with_ffmpeg(audio_path)
+            audio_path = temp_wav_path
+
+        try:
+            # soundfile carga como [samples, channels] en float32/float64
+            data, sr = sf.read(audio_path, always_2d=True, dtype="float32")
+        except Exception as e:
+            # Último recurso: si soundfile falla por cualquier otro motivo,
+            # intentar igualmente vía ffmpeg antes de rendirse.
+            if temp_wav_path is None:
+                temp_wav_path = self._transcode_with_ffmpeg(audio_path)
+                data, sr = sf.read(temp_wav_path, always_2d=True, dtype="float32")
+            else:
+                raise RuntimeError(f"No se pudo leer el audio convertido: {e}") from e
+        finally:
+            if temp_wav_path is not None and os.path.exists(temp_wav_path):
+                try:
+                    os.remove(temp_wav_path)
+                except OSError:
+                    pass
 
         # Transponer a [channels, samples] (formato torch)
         wav = torch.from_numpy(data.T)  # [C, T]
@@ -46,8 +108,9 @@ class AudioSeparator:
         # Resample si el sample rate no coincide
         if sr != target_sr:
             try:
-                from scipy.signal import resample_poly
                 from math import gcd
+
+                from scipy.signal import resample_poly
 
                 g = gcd(target_sr, sr)
                 up, down = target_sr // g, sr // g

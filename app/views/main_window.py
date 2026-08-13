@@ -1,22 +1,22 @@
 import os
-import threading
-import customtkinter as ctk
-from tkinter import filedialog
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
+import ttkbootstrap as tb
 
-# ── Paleta "Sonic Ethereal" basada en el diseño Stitch ─────────────────────
-C_BG         = "#0c0c1f"   # Fondo principal (surface)
-C_SURFACE    = "#17172f"   # Contenedor principal
-C_SURFACE_H  = "#1d1d37"   # Contenedor elevado
-C_SURFACE_HH = "#23233f"   # Contenedor más elevado (modal, cards)
-C_ACCENT     = "#49f4c8"   # Electric Mint (primary)
-C_ACCENT_DIM = "#00d4aa"   # Teal (primary_container)
-C_TEXT       = "#e5e3ff"   # Texto principal (on_surface)
-C_TEXT_DIM   = "#aaa8c3"   # Texto secundario (on_surface_variant)
-C_OUTLINE    = "#46465c"   # Borde sutil (outline_variant)
-C_ERROR      = "#ff716c"   # Error
+from .theme import (
+    C_ACCENT,
+    C_ACCENT_DIM,
+    C_BG,
+    C_ERROR,
+    C_OUTLINE,
+    C_SURFACE,
+    C_SURFACE_H,
+    C_TEXT,
+    C_TEXT_DIM,
+    SONIC_ETHEREAL,
+    configure_all_styles,
+)
 
 
 class MainWindow:
@@ -24,24 +24,27 @@ class MainWindow:
 
     def __init__(self, presenter) -> None:
         self._presenter = presenter
-        self._app: ctk.CTk | None = None
-        self._status_label: ctk.CTkLabel | None = None
-        self._progress_bar: ctk.CTkProgressBar | None = None
-        self._file_label: ctk.CTkLabel | None = None
+        self._app: tb.Window | None = None
+        self._status_label: tk.Label | None = None
+        self._progress_bar: ttk.Progressbar | None = None
+        self._file_label: tk.Label | None = None
         self._selected_file: str | None = None
-        self._install_button: ctk.CTkButton | None = None
+        self._install_button: tb.Button | None = None
 
-        # Estado del modal de opciones
-        self._mode_var: ctk.StringVar | None = None
+        self._mode_var: tk.StringVar | None = None
         self._output_dir: str | None = None
 
     # ── Construcción principal ───────────────────────────────────────────────
-    def build(self) -> ctk.CTk:
-        self._app = ctk.CTk()
+    def build(self) -> tb.Window:
+        self._app = tb.Window(themename="darkly")
         self._app.title("VocalRemoverAI")
         self._app.geometry("1100x700")
         self._app.minsize(900, 580)
-        self._app.configure(fg_color=C_BG)
+
+        style = tb.Style()
+        style.register_theme(SONIC_ETHEREAL)
+        style.theme_use("sonic-ethereal")
+        configure_all_styles(style)
 
         self._app.grid_columnconfigure(0, weight=1)
         self._app.grid_rowconfigure(1, weight=1)
@@ -55,236 +58,216 @@ class MainWindow:
 
     # ── Top Bar ──────────────────────────────────────────────────────────────
     def _build_topbar(self, parent) -> None:
-        bar = ctk.CTkFrame(parent, fg_color=C_SURFACE, height=56, corner_radius=0)
+        bar = ttk.Frame(parent, style="TopBar.TFrame", height=56)
         bar.grid(row=0, column=0, sticky="ew")
         bar.grid_columnconfigure(1, weight=1)
         bar.grid_propagate(False)
 
-        logo = ctk.CTkLabel(
+        logo = tk.Label(
             bar,
             text="♪  VocalRemoverAI",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
-            text_color=C_ACCENT,
+            font=("Segoe UI", 20, "bold"),
+            fg=C_ACCENT,
+            bg=C_SURFACE,
         )
         logo.grid(row=0, column=0, padx=24, pady=12, sticky="w")
 
-        # Estado en el centro
-        self._status_label = ctk.CTkLabel(
+        self._status_label = tk.Label(
             bar,
             text="Listo para procesar",
-            font=ctk.CTkFont(size=13),
-            text_color=C_TEXT_DIM,
+            font=(13,),
+            fg=C_TEXT_DIM,
+            bg=C_SURFACE,
         )
         self._status_label.grid(row=0, column=1, sticky="")
 
-        # Botón Opciones
-        options_btn = ctk.CTkButton(
+        options_btn = tb.Button(
             bar,
             text="⚙  Opciones",
             command=self._open_options_modal,
-            fg_color="transparent",
-            border_color=C_OUTLINE,
-            border_width=1,
-            text_color=C_ACCENT,
-            hover_color=C_SURFACE_H,
-            width=120,
-            height=34,
-            font=ctk.CTkFont(size=13),
+            bootstyle="outline-primary",
+            width=14,
         )
         options_btn.grid(row=0, column=2, padx=(0, 16), pady=11)
 
-        # Botón de instalar dependencias (oculto por defecto)
-        self._install_button = ctk.CTkButton(
+        self._install_button = tb.Button(
             bar,
             text="⚠ Instalar dependencias",
             command=self._on_install_dependencies,
-            fg_color=C_ERROR,
-            hover_color="#e05a56",
-            text_color=C_TEXT,
-            height=34,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            bootstyle="danger",
         )
         self._install_button.grid(row=0, column=3, padx=(0, 16), pady=11)
         self._install_button.grid_remove()
 
     # ── Área principal ───────────────────────────────────────────────────────
     def _build_main_area(self, parent) -> None:
-        wrapper = ctk.CTkFrame(parent, fg_color="transparent")
+        wrapper = tk.Frame(parent, bg=C_BG)
         wrapper.grid(row=1, column=0, sticky="nsew", padx=48, pady=32)
         wrapper.grid_columnconfigure(0, weight=1)
         wrapper.grid_rowconfigure(0, weight=1)
 
-        # Zona de drop centrada
-        drop_card = ctk.CTkFrame(
+        drop_card = tk.Frame(
             wrapper,
-            fg_color=C_SURFACE,
-            corner_radius=20,
-            border_width=2,
-            border_color=C_OUTLINE,
+            bg=C_SURFACE,
+            highlightbackground=C_OUTLINE,
+            highlightthickness=2,
         )
         drop_card.grid(row=0, column=0, sticky="nsew")
         drop_card.grid_columnconfigure(0, weight=1)
         drop_card.grid_rowconfigure(0, weight=1)
 
-        inner = ctk.CTkFrame(drop_card, fg_color="transparent")
+        inner = tk.Frame(drop_card, bg=C_SURFACE)
         inner.grid(row=0, column=0)
 
-        # Ícono musical
-        icon_label = ctk.CTkLabel(
+        icon_label = tk.Label(
             inner,
             text="🎵",
-            font=ctk.CTkFont(size=64),
-            text_color=C_ACCENT,
+            font=(64,),
+            fg=C_ACCENT,
+            bg=C_SURFACE,
         )
         icon_label.pack(pady=(0, 16))
 
-        # Título de drop
-        drop_title = ctk.CTkLabel(
+        drop_title = tk.Label(
             inner,
             text="Arrastra tu audio o video aquí",
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-            text_color=C_TEXT,
+            font=("Segoe UI", 24, "bold"),
+            fg=C_TEXT,
+            bg=C_SURFACE,
         )
         drop_title.pack()
 
-        # Formatos soportados
-        formats_label = ctk.CTkLabel(
+        formats_label = tk.Label(
             inner,
             text="MP3 · WAV · FLAC · OGG · M4A · MP4 · AVI · MKV · MOV",
-            font=ctk.CTkFont(size=13),
-            text_color=C_TEXT_DIM,
+            font=(13,),
+            fg=C_TEXT_DIM,
+            bg=C_SURFACE,
         )
         formats_label.pack(pady=(6, 0))
 
-        # Archivo seleccionado
-        self._file_label = ctk.CTkLabel(
+        self._file_label = tk.Label(
             inner,
             text="",
-            font=ctk.CTkFont(size=12),
-            text_color=C_ACCENT_DIM,
+            font=(12,),
+            fg=C_ACCENT_DIM,
+            bg=C_SURFACE,
             wraplength=500,
         )
         self._file_label.pack(pady=(8, 0))
 
-        # Separador
-        sep = ctk.CTkLabel(inner, text="─────  o  ─────", text_color=C_OUTLINE)
+        sep = tk.Label(
+            inner,
+            text="─────  o  ─────",
+            fg=C_OUTLINE,
+            bg=C_SURFACE,
+        )
         sep.pack(pady=20)
 
-        # Botón seleccionar archivo
-        select_btn = ctk.CTkButton(
+        select_btn = tb.Button(
             inner,
             text="📂  Seleccionar Archivo",
             command=self._on_select_file,
-            fg_color=C_ACCENT_DIM,
-            hover_color=C_ACCENT,
-            text_color=C_BG,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            height=48,
-            width=260,
-            corner_radius=12,
+            bootstyle="success",
+            width=28,
         )
         select_btn.pack()
 
-        # Barra de progreso (oculta inicialmente)
-        self._progress_bar = ctk.CTkProgressBar(
+        self._progress_bar = ttk.Progressbar(
             inner,
-            progress_color=C_ACCENT,
-            fg_color=C_SURFACE_HH,
-            height=4,
-            width=320,
+            style="Accent.Horizontal.TProgressbar",
+            mode="determinate",
+            maximum=1.0,
+            length=320,
         )
         self._progress_bar.pack(pady=(24, 0))
-        self._progress_bar.set(0)
+        self._progress_bar["value"] = 0
         self._progress_bar.pack_forget()
 
     # ── Footer ───────────────────────────────────────────────────────────────
     def _build_footer(self, parent) -> None:
-        footer = ctk.CTkFrame(parent, fg_color=C_SURFACE, height=36, corner_radius=0)
+        footer = ttk.Frame(parent, style="Footer.TFrame", height=36)
         footer.grid(row=2, column=0, sticky="ew")
         footer.grid_columnconfigure(1, weight=1)
         footer.grid_propagate(False)
 
-        left = ctk.CTkLabel(
+        left = tk.Label(
             footer,
             text=f"VocalRemoverAI v{self.VERSION}  ·  Powered by Demucs AI (Meta)",
-            font=ctk.CTkFont(size=11),
-            text_color=C_TEXT_DIM,
+            font=(11,),
+            fg=C_TEXT_DIM,
+            bg=C_SURFACE,
         )
         left.grid(row=0, column=0, padx=20, pady=8, sticky="w")
 
         device = self._presenter.get_device().upper()
-        device_color = C_ACCENT if device == "CUDA" else C_TEXT_DIM
+        device_fg = C_ACCENT if device == "CUDA" else C_TEXT_DIM
         device_icon = "⚡" if device == "CUDA" else "🔲"
-        right = ctk.CTkLabel(
+
+        right = tk.Label(
             footer,
             text=f"{device_icon} {device} mode  ·  © 2025 VocalRemoverAI",
-            font=ctk.CTkFont(size=11),
-            text_color=device_color,
+            font=(11,),
+            fg=device_fg,
+            bg=C_SURFACE,
         )
         right.grid(row=0, column=2, padx=20, pady=8, sticky="e")
 
     # ── Modal de Opciones ────────────────────────────────────────────────────
     def _open_options_modal(self) -> None:
-        modal = ctk.CTkToplevel(self._app)
+        modal = tb.Toplevel(self._app)
         modal.title("Opciones de Separación")
         modal.geometry("520x400")
-        modal.configure(fg_color=C_BG)
+        modal.configure(bg=C_BG)
         modal.grab_set()
         modal.resizable(False, False)
         modal.lift()
         modal.focus_force()
 
-        # Centrar modal respecto a la ventana principal
         self._app.update_idletasks()
         x = self._app.winfo_x() + (self._app.winfo_width() // 2) - 260
         y = self._app.winfo_y() + (self._app.winfo_height() // 2) - 200
         modal.geometry(f"520x400+{x}+{y}")
 
-        # Header del modal
-        header_frame = ctk.CTkFrame(modal, fg_color=C_SURFACE, corner_radius=0, height=56)
+        header_frame = ttk.Frame(modal, style="ModalHeader.TFrame", height=56)
         header_frame.pack(fill="x")
         header_frame.pack_propagate(False)
-        header_frame.grid_columnconfigure(1, weight=1)
 
-        title_lbl = ctk.CTkLabel(
+        title_lbl = tk.Label(
             header_frame,
             text="⚙  Opciones de Separación",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color=C_ACCENT,
+            font=("Segoe UI", 16, "bold"),
+            fg=C_ACCENT,
+            bg=C_SURFACE,
         )
         title_lbl.pack(side="left", padx=20, pady=14)
 
-        close_btn = ctk.CTkButton(
+        close_btn = tb.Button(
             header_frame,
             text="✕",
             command=modal.destroy,
-            fg_color="transparent",
-            hover_color=C_SURFACE_H,
-            text_color=C_TEXT_DIM,
-            width=36,
-            height=36,
-            font=ctk.CTkFont(size=14),
+            bootstyle="secondary-outline",
+            width=4,
         )
         close_btn.pack(side="right", padx=12, pady=10)
 
-        content = ctk.CTkFrame(modal, fg_color="transparent")
+        content = tk.Frame(modal, bg=C_BG)
         content.pack(fill="both", expand=True, padx=24, pady=16)
 
-        # ── Sección: Modo de separación ──────────────────────────────────────
-        mode_label = ctk.CTkLabel(
+        mode_label = tk.Label(
             content,
             text="MODO DE SEPARACIÓN",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=C_ACCENT,
+            font=("Segoe UI", 11, "bold"),
+            fg=C_ACCENT,
+            bg=C_BG,
         )
         mode_label.pack(anchor="w")
 
-        mode_card = ctk.CTkFrame(content, fg_color=C_SURFACE_H, corner_radius=12)
+        mode_card = tk.Frame(content, bg=C_SURFACE_H)
         mode_card.pack(fill="x", pady=(8, 20))
 
-        # Usar el modo actual del presenter
         current_mode = self._presenter.get_mode()
-        self._mode_var = ctk.StringVar(value=current_mode)
+        self._mode_var = tk.StringVar(value=current_mode)
 
         modes = [
             ("instrumental_only", "🎸  Solo Instrumental", "Elimina las voces, conserva la música"),
@@ -292,68 +275,61 @@ class MainWindow:
             ("both",              "🎵  Instrumental + Voz", "Genera ambas pistas por separado"),
         ]
         for val, label, subtitle in modes:
-            row = ctk.CTkFrame(mode_card, fg_color="transparent")
+            row = tk.Frame(mode_card, bg=C_SURFACE_H)
             row.pack(fill="x", padx=16, pady=8)
 
-            rb = ctk.CTkRadioButton(
+            rb = ttk.Radiobutton(
                 row,
                 text=label,
                 variable=self._mode_var,
                 value=val,
-                fg_color=C_ACCENT_DIM,
-                hover_color=C_ACCENT,
-                text_color=C_TEXT,
-                font=ctk.CTkFont(size=13),
             )
             rb.pack(side="left")
 
-            sub = ctk.CTkLabel(
+            sub = tk.Label(
                 row,
                 text=subtitle,
-                font=ctk.CTkFont(size=11),
-                text_color=C_TEXT_DIM,
+                font=(11,),
+                fg=C_TEXT_DIM,
+                bg=C_SURFACE_H,
             )
             sub.pack(side="right", padx=8)
 
         # ── Sección: Directorio de salida ─────────────────────────────────────
-        out_label = ctk.CTkLabel(
+        out_label = tk.Label(
             content,
             text="DIRECTORIO DE SALIDA",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=C_ACCENT,
+            font=("Segoe UI", 11, "bold"),
+            fg=C_ACCENT,
+            bg=C_BG,
         )
         out_label.pack(anchor="w")
 
-        out_card = ctk.CTkFrame(content, fg_color=C_SURFACE_H, corner_radius=12)
+        out_card = tk.Frame(content, bg=C_SURFACE_H)
         out_card.pack(fill="x", pady=(8, 0))
         out_card.grid_columnconfigure(0, weight=1)
 
-        current_out = self._presenter.get_output_directory() or "Mismo directorio que el archivo de origen"
-        self._out_path_label = ctk.CTkLabel(
+        out_dir = self._presenter.get_output_directory()
+        current_out = out_dir or "Mismo directorio que el archivo de origen"
+        self._out_path_label = tk.Label(
             out_card,
             text=current_out,
-            font=ctk.CTkFont(size=12),
-            text_color=C_TEXT_DIM,
+            font=(12,),
+            fg=C_TEXT_DIM,
+            bg=C_SURFACE_H,
             anchor="w",
         )
         self._out_path_label.grid(row=0, column=0, padx=16, pady=14, sticky="ew")
 
-        change_btn = ctk.CTkButton(
+        change_btn = tb.Button(
             out_card,
             text="Cambiar...",
             command=lambda: self._pick_output_dir(self._out_path_label),
-            fg_color="transparent",
-            border_color=C_ACCENT_DIM,
-            border_width=1,
-            text_color=C_ACCENT,
-            hover_color=C_SURFACE_HH,
-            width=100,
-            height=30,
-            font=ctk.CTkFont(size=12),
+            bootstyle="outline-success",
+            width=12,
         )
         change_btn.grid(row=0, column=1, padx=(0, 12), pady=12)
 
-        # ── Botón Aplicar ─────────────────────────────────────────────────────
         def _apply():
             self._presenter.set_mode(self._mode_var.get())
             modal.destroy()
@@ -364,16 +340,11 @@ class MainWindow:
             }
             self._on_status_update(f"Modo: {mode_names[self._mode_var.get()]}")
 
-        apply_btn = ctk.CTkButton(
+        apply_btn = tb.Button(
             modal,
             text="✓  Aplicar",
             command=_apply,
-            fg_color=C_ACCENT_DIM,
-            hover_color=C_ACCENT,
-            text_color=C_BG,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=44,
-            corner_radius=10,
+            bootstyle="success",
         )
         apply_btn.pack(fill="x", padx=24, pady=(12, 20))
 
@@ -399,7 +370,8 @@ class MainWindow:
             self._selected_file = file_path
             name = os.path.basename(file_path)
             self._file_label.configure(text=f"📄  {name}")
-            self._presenter.set_mode(self._mode_var.get() if self._mode_var else "instrumental_only")
+            mode = self._mode_var.get() if self._mode_var else "instrumental_only"
+            self._presenter.set_mode(mode)
             self._presenter.process_file(file_path)
 
     # ── Callbacks del presenter ──────────────────────────────────────────────
@@ -415,7 +387,7 @@ class MainWindow:
 
     def _on_status_update(self, message: str) -> None:
         if self._status_label:
-            self._status_label.configure(text=message, text_color=C_TEXT_DIM)
+            self._status_label.configure(text=message, fg=C_TEXT_DIM)
 
     def _on_processing_started(self) -> None:
         if self._progress_bar:
@@ -423,66 +395,74 @@ class MainWindow:
             self._progress_bar.configure(mode="indeterminate")
             self._progress_bar.start()
         if self._status_label:
-            self._status_label.configure(text="⏳  Procesando...", text_color=C_ACCENT)
+            self._status_label.configure(text="⏳  Procesando...", fg=C_ACCENT)
 
     def _on_processing_finished(self) -> None:
         if self._progress_bar:
             self._progress_bar.stop()
             self._progress_bar.configure(mode="determinate")
-            self._progress_bar.set(1)
+            self._progress_bar["value"] = 1.0
 
     def _on_processing_complete(self, output_files: dict) -> None:
         count = len(output_files)
         names = "  ·  ".join(output_files.keys())
-        msg = f"✅  {count} archivo{'s' if count > 1 else ''} generado{'s' if count > 1 else ''}:  {names}"
+        s = "s" if count > 1 else ""
+        msg = f"✅  {count} archivo{s} generado{s}:  {names}"
         if self._status_label:
-            self._status_label.configure(text=msg, text_color=C_ACCENT)
+            self._status_label.configure(text=msg, fg=C_ACCENT)
         if self._progress_bar:
-            self._progress_bar.set(1)
+            self._progress_bar["value"] = 1.0
 
     def _on_error(self, message: str) -> None:
         if self._status_label:
-            self._status_label.configure(text=f"❌  {message}", text_color=C_ERROR)
+            self._status_label.configure(text=f"❌  {message}", fg=C_ERROR)
         if self._progress_bar:
             self._progress_bar.stop()
-            self._progress_bar.set(0)
+            self._progress_bar["value"] = 0
             self._progress_bar.pack_forget()
-        from tkinter import messagebox
         messagebox.showerror("Error", message)
 
     # ── Instalación de dependencias ──────────────────────────────────────────
     def _on_install_dependencies(self) -> None:
-        dialog = ctk.CTkToplevel(self._app)
+        dialog = tb.Toplevel(self._app)
         dialog.title("Instalando dependencias")
         dialog.geometry("680x400")
-        dialog.configure(fg_color=C_BG)
+        dialog.configure(bg=C_BG)
         dialog.grab_set()
 
-        ctk.CTkLabel(
+        tk.Label(
             dialog,
             text="📦  Instalando dependencias...",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            text_color=C_ACCENT,
+            font=("Segoe UI", 15, "bold"),
+            fg=C_ACCENT,
+            bg=C_BG,
         ).pack(padx=20, pady=(16, 8), anchor="w")
 
-        self._install_log_box = ctk.CTkTextbox(
+        self._install_log_box = tk.Text(
             dialog,
-            fg_color=C_SURFACE,
-            text_color="#c8f0c8",
-            font=ctk.CTkFont(family="Courier New", size=11),
+            bg=C_SURFACE,
+            fg="#c8f0c8",
+            font=("Courier New", 11),
             wrap="word",
             state="disabled",
+            relief="flat",
+            borderwidth=0,
+            padx=8,
+            pady=8,
         )
         self._install_log_box.pack(fill="both", expand=True, padx=20, pady=(0, 8))
 
-        self._install_close_btn = ctk.CTkButton(
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=self._install_log_box.yview)
+        scrollbar.place(in_=self._install_log_box, relx=1.0, rely=0, relheight=1.0, x=-20)
+        self._install_log_box.configure(yscrollcommand=scrollbar.set)
+
+        self._install_close_btn = tb.Button(
             dialog,
             text="Cerrar",
             state="disabled",
-            fg_color=C_SURFACE_H,
-            text_color=C_TEXT_DIM,
-            command=dialog.destroy,
+            bootstyle="secondary",
         )
+        self._install_close_btn.configure(command=dialog.destroy)
         self._install_close_btn.pack(pady=(0, 16))
 
         self._install_button.configure(state="disabled", text="Instalando...")
@@ -505,12 +485,12 @@ class MainWindow:
             self._append_install_log("\n✅ Instalación completada.")
             if hasattr(self, "_install_close_btn") and self._install_close_btn:
                 self._install_close_btn.configure(
-                    state="normal", fg_color=C_ACCENT_DIM, text_color=C_BG
+                    state="normal", bootstyle="success"
                 )
             if self._install_button:
                 self._install_button.grid_remove()
             if self._status_label:
-                self._status_label.configure(text="✅  Dependencias instaladas", text_color=C_ACCENT)
+                self._status_label.configure(text="✅  Dependencias instaladas", fg=C_ACCENT)
         if self._app:
             self._app.after(0, _finish)
 
@@ -519,7 +499,7 @@ class MainWindow:
             self._append_install_log(f"\n❌ Error: {message}")
             if hasattr(self, "_install_close_btn") and self._install_close_btn:
                 self._install_close_btn.configure(
-                    state="normal", fg_color=C_ERROR, text_color=C_TEXT
+                    state="normal", bootstyle="danger"
                 )
             if self._install_button:
                 self._install_button.configure(state="normal", text="⚠ Instalar dependencias")
@@ -534,7 +514,7 @@ class MainWindow:
             if self._status_label:
                 self._status_label.configure(
                     text=f"⚠  Dependencias faltantes: {', '.join(missing)}",
-                    text_color=C_ERROR,
+                    fg=C_ERROR,
                 )
 
     def run(self) -> None:

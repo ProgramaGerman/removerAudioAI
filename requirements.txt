@@ -1,4 +1,4 @@
-customtkinter>=5.2.0
+ttkbootstrap>=2.0.0
 demucs>=4.0.0
 torch>=2.0.0
 torchaudio>=2.0.0

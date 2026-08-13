@@ -1,6 +1,7 @@
 class DependencyChecker:
+    # Import name used to check availability
     REQUIRED_PACKAGES: list[str] = [
-        "customtkinter",
+        "ttkbootstrap",
         "demucs",
         "torch",
         "torchaudio",
@@ -8,6 +9,12 @@ class DependencyChecker:
         "dotenv",
         "httpx",
     ]
+
+    # Import name -> actual PyPI/uv package name (only needed when they differ)
+    IMPORT_TO_PACKAGE_NAME: dict[str, str] = {
+        "PIL": "pillow",
+        "dotenv": "python-dotenv",
+    }
 
     SYSTEM_DEPENDENCIES: list[str] = [
         "ffmpeg",
@@ -24,7 +31,7 @@ class DependencyChecker:
             try:
                 __import__(module_name)
             except ImportError:
-                self._missing_packages.append(package)
+                self._missing_packages.append(self.IMPORT_TO_PACKAGE_NAME.get(package, package))
         return len(self._missing_packages) == 0
 
     def check_system_dependencies(self) -> bool:
